@@ -6,83 +6,158 @@ user_invocable: true
 
 # Kitten Terminal Remote Control
 
-Control your Kitty terminal windows directly from the agent. This skill provides comprehensive access to kitty's remote control capabilities.
+Control your Kitty terminal windows directly from the agent. See what's running in every terminal, send commands, and manage windows.
+
+## Quick Start: Get Oriented First
+
+**Always start with `summary` to see all your terminals at a glance:**
+
+```bash
+python3 {{skill_dir}}/scripts/kitten_control.py summary
+```
+
+This gives you a complete markdown overview of ALL open terminals showing:
+
+```
+════════════════════════════════════════════════════════════════════════════════
+##  WINDOW 172  │  🟡 ACTIVE  │  ✅ READY  │  🐚 shell
+════════════════════════════════════════════════════════════════════════════════
+
+| Property | Value |
+|----------|-------|
+| **Window ID** | `172` |
+| **Status** | ✅ READY - Can receive commands |
+| **Process** | 🐚 shell |
+| **CWD** | `/Users/me/workspace/myproject` |
+| **Git Branch** | `main` |
+| **Session Age** | 2d ago |
+
+**Quick commands:**
+- Send text: `send-text -w 172 -e "your command"`
+- Send Ctrl+C: `send-key -w 172 ctrl+c`
+
+```last 20 lines of terminal output...```
+```
+
+### What Summary Shows You
+
+| Annotation | Meaning |
+|------------|---------|
+| **✅ READY** | Shell is at prompt, can receive commands |
+| **⏳ BUSY** | Running a process, may need Ctrl+C first |
+| **🐚 shell** | Idle shell |
+| **🤖 agent** | AI agent (codex, claude, etc.) |
+| **🔗 ssh** | SSH connection (shows target host) |
+| **🔨 build** | Build process (make, npm, cargo) |
+| **🌐 server** | Running server |
+| **📝 editor** | vim, nvim, etc. |
+| **Git Branch** | Current branch in that directory |
+| **SSH Target** | Remote host for SSH sessions |
+
+### Summary Options
+
+```bash
+# Default: 20 lines from each window
+python3 {{skill_dir}}/scripts/kitten_control.py summary
+
+# More context: 50 lines per window
+python3 {{skill_dir}}/scripts/kitten_control.py summary -n 50
+
+# Just last command output (cleaner)
+python3 {{skill_dir}}/scripts/kitten_control.py summary -e last_cmd_output
+
+# Full scrollback (large output)
+python3 {{skill_dir}}/scripts/kitten_control.py summary -e all -n 100
+```
+
+---
+
+## Interacting With Windows
+
+Once you've identified a window from the summary, use its **Window ID** to interact:
+
+### Send Commands
+
+```bash
+# Send a command and press Enter
+python3 {{skill_dir}}/scripts/kitten_control.py send-text -w 172 -e "git status"
+
+# Send text without Enter
+python3 {{skill_dir}}/scripts/kitten_control.py send-text -w 172 "partial text"
+
+# Send Ctrl+C to interrupt
+python3 {{skill_dir}}/scripts/kitten_control.py send-key -w 172 ctrl+c
+
+# Send other keys: escape, enter, tab, up, down, ctrl+d, etc.
+python3 {{skill_dir}}/scripts/kitten_control.py send-key -w 172 escape
+```
+
+### Read Output
+
+```bash
+# Get current screen content
+python3 {{skill_dir}}/scripts/kitten_control.py get-text -w 172
+
+# Get last command's output (cleanest)
+python3 {{skill_dir}}/scripts/kitten_control.py get-text -w 172 -e last_cmd_output
+
+# Get full scrollback
+python3 {{skill_dir}}/scripts/kitten_control.py get-text -w 172 -e all
+```
+
+### Window Management
+
+```bash
+# Focus a window
+python3 {{skill_dir}}/scripts/kitten_control.py focus -w 172
+
+# Close a window
+python3 {{skill_dir}}/scripts/kitten_control.py close -w 172
+
+# Launch new window in specific directory
+python3 {{skill_dir}}/scripts/kitten_control.py launch --cwd /path/to/project
+
+# Launch new tab with title
+python3 {{skill_dir}}/scripts/kitten_control.py launch --type tab --title "Build"
+```
+
+---
+
+## Common Workflows
+
+### Check on a build/process
+```bash
+# 1. Get summary to find the window
+python3 {{skill_dir}}/scripts/kitten_control.py summary -n 10
+
+# 2. Found window 236 running a build, get its output
+python3 {{skill_dir}}/scripts/kitten_control.py get-text -w 236 -e last_cmd_output
+```
+
+### Run a command in an existing shell
+```bash
+# 1. Find a READY shell from summary
+python3 {{skill_dir}}/scripts/kitten_control.py summary -n 5
+
+# 2. Window 172 is ✅ READY, send command
+python3 {{skill_dir}}/scripts/kitten_control.py send-text -w 172 -e "make test"
+
+# 3. Check the result
+python3 {{skill_dir}}/scripts/kitten_control.py get-text -w 172 -e last_cmd_output
+```
+
+### Stop a runaway process
+```bash
+# Send Ctrl+C
+python3 {{skill_dir}}/scripts/kitten_control.py send-key -w 236 ctrl+c
+
+# Or send SIGINT signal
+python3 {{skill_dir}}/scripts/kitten_control.py signal -w 236 SIGINT
+```
+
+---
 
 ## Requirements
 
-- Kitty terminal emulator with `allow_remote_control` enabled in kitty.conf
-- The `kitten` command available in PATH
-
-## Usage
-
-```bash
-# List all windows with their status
-python3 {{skill_dir}}/scripts/kitten_control.py ls
-
-# Get screen content from a specific window
-python3 {{skill_dir}}/scripts/kitten_control.py get-text --window-id <id>
-
-# Get the last command output from a window
-python3 {{skill_dir}}/scripts/kitten_control.py get-text --window-id <id> --extent last_cmd_output
-
-# Send text/commands to a window
-python3 {{skill_dir}}/scripts/kitten_control.py send-text --window-id <id> "echo hello"
-
-# Send text with Enter key
-python3 {{skill_dir}}/scripts/kitten_control.py send-text --window-id <id> --enter "ls -la"
-
-# Send special keys (Ctrl+C, etc.)
-python3 {{skill_dir}}/scripts/kitten_control.py send-key --window-id <id> ctrl+c
-
-# Launch a new window
-python3 {{skill_dir}}/scripts/kitten_control.py launch --cwd /path/to/dir
-
-# Launch a new tab
-python3 {{skill_dir}}/scripts/kitten_control.py launch --type tab --title "My Tab"
-
-# Focus a window
-python3 {{skill_dir}}/scripts/kitten_control.py focus --window-id <id>
-
-# Close a window
-python3 {{skill_dir}}/scripts/kitten_control.py close --window-id <id>
-
-# Watch mode - continuously monitor windows
-python3 {{skill_dir}}/scripts/kitten_control.py ls -w
-```
-
-## Commands
-
-### ls
-List all OS windows, tabs, and terminal windows with their IDs, titles, working directories, and process info.
-
-### get-text
-Retrieve text content from a window. Options:
-- `--window-id`: Target window ID
-- `--extent`: What to get (screen, all, last_cmd_output, first_cmd_output_on_screen, selection)
-- `--ansi`: Include ANSI formatting codes
-
-### send-text
-Send text to a window. Options:
-- `--window-id`: Target window ID
-- `--enter`: Append Enter key after text
-- `--bracketed`: Use bracketed paste mode
-
-### send-key
-Send keyboard input to a window. Options:
-- `--window-id`: Target window ID
-- Supports key names like: ctrl+c, ctrl+d, escape, enter, tab, up, down, left, right
-
-### launch
-Launch a new window/tab. Options:
-- `--type`: window, tab, os-window, overlay
-- `--title`: Window title
-- `--cwd`: Working directory
-- `--hold`: Keep window open after command exits
-
-### focus
-Focus a specific window.
-- `--window-id`: Target window ID
-
-### close
-Close a specific window.
-- `--window-id`: Target window ID
+- Kitty terminal with `allow_remote_control yes` in kitty.conf
+- The `kitten` command in PATH (comes with Kitty)
