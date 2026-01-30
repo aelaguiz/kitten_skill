@@ -846,7 +846,13 @@ class KittenController:
 
                     # Build header with key status indicators
                     prompt_indicator = "✅ READY" if at_prompt else "⏳ BUSY"
-                    output_parts.append(f"## Window {win_id} | {status} | {prompt_indicator} | {process_type}\n")
+
+                    # Big visible divider
+                    output_parts.append("")
+                    output_parts.append("═" * 80)
+                    output_parts.append(f"##  WINDOW {win_id}  │  {status}  │  {prompt_indicator}  │  {process_type}")
+                    output_parts.append("═" * 80)
+                    output_parts.append("")
 
                     # Main info table
                     output_parts.append(f"| Property | Value |")
@@ -904,7 +910,7 @@ class KittenController:
                     else:
                         output_parts.append("*No output available*")
 
-                    output_parts.append("\n---\n")
+                    output_parts.append("")
 
         # Summary section at the end
         if window_count == 0:
