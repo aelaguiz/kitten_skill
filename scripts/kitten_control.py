@@ -528,6 +528,122 @@ class KittenController:
         rc, stdout, stderr = self._run(args)
         return rc == 0
 
+    # ==================== SUMMARY ====================
+
+    def summary(self, lines: int = 20, extent: str = "screen",
+                exclude_self: bool = True) -> str:
+        """Get a markdown-formatted summary of all terminal windows with their recent output.
+
+        Args:
+            lines: Number of lines to show from each window
+            extent: What text to get (screen, all, last_cmd_output, etc.)
+            exclude_self: Skip the window running this command
+
+        Returns:
+            Markdown formatted string with all window contents
+        """
+        data = self.ls()
+        if "error" in data:
+            return f"Error: {data['error']}"
+
+        output_parts = []
+        output_parts.append("# Kitty Terminal Summary\n")
+        output_parts.append(f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n")
+        output_parts.append(f"*Showing last {lines} lines from each window (extent: {extent})*\n")
+        output_parts.append("---\n")
+
+        window_count = 0
+
+        for os_win in data:
+            os_id = os_win.get("id", "?")
+            is_os_focused = os_win.get("is_focused", False)
+
+            for tab in os_win.get("tabs", []):
+                tab_id = tab.get("id", "?")
+                tab_title = tab.get("title", "Untitled")
+                is_tab_active = tab.get("is_active", False)
+                layout = tab.get("layout", "unknown")
+
+                for win in tab.get("windows", []):
+                    win_id = win.get("id", "?")
+                    is_self = win.get("is_self", False)
+
+                    # Skip self if requested
+                    if exclude_self and is_self:
+                        continue
+
+                    window_count += 1
+
+                    win_title = win.get("title", "Untitled")
+                    cwd = win.get("cwd", "unknown")
+                    pid = win.get("pid", "?")
+                    is_focused = win.get("is_focused", False)
+                    is_active = win.get("is_active", False)
+
+                    # Get foreground process info
+                    fg_procs = win.get("foreground_processes", [])
+                    fg_cmd = "shell"
+                    fg_cwd = cwd
+                    if fg_procs:
+                        cmdline = fg_procs[0].get("cmdline", [])
+                        if cmdline:
+                            fg_cmd = " ".join(cmdline)
+                        fg_cwd = fg_procs[0].get("cwd", cwd)
+
+                    # Determine status emoji
+                    if is_focused:
+                        status = "🟢 FOCUSED"
+                    elif is_active:
+                        status = "🟡 ACTIVE"
+                    else:
+                        status = "⚪ IDLE"
+
+                    # Build header
+                    output_parts.append(f"## Window {win_id} | {status}\n")
+                    output_parts.append(f"| Property | Value |")
+                    output_parts.append(f"|----------|-------|")
+                    output_parts.append(f"| **Window ID** | `{win_id}` |")
+                    output_parts.append(f"| **Tab** | {tab_id} ({tab_title}) |")
+                    output_parts.append(f"| **OS Window** | {os_id} |")
+                    output_parts.append(f"| **Title** | {win_title} |")
+                    output_parts.append(f"| **CWD** | `{fg_cwd}` |")
+                    output_parts.append(f"| **PID** | {pid} |")
+                    output_parts.append(f"| **Command** | `{truncate(fg_cmd, 50)}` |")
+                    output_parts.append("")
+
+                    # Quick reference for commands
+                    output_parts.append(f"**Quick commands:**")
+                    output_parts.append(f"- Send text: `send-text -w {win_id} -e \"your command\"`")
+                    output_parts.append(f"- Send Ctrl+C: `send-key -w {win_id} ctrl+c`")
+                    output_parts.append(f"- Get more output: `get-text -w {win_id} -e all`")
+                    output_parts.append(f"- Focus: `focus -w {win_id}`")
+                    output_parts.append("")
+
+                    # Get terminal content
+                    text = self.get_text(window_id=win_id, extent=extent)
+
+                    if text and not text.startswith("Error:"):
+                        # Get last N lines
+                        text_lines = text.rstrip('\n').split('\n')
+                        if len(text_lines) > lines:
+                            text_lines = text_lines[-lines:]
+                            output_parts.append(f"*(...truncated, showing last {lines} lines)*\n")
+
+                        output_parts.append("```")
+                        output_parts.append('\n'.join(text_lines))
+                        output_parts.append("```")
+                    else:
+                        output_parts.append("*No output available*")
+
+                    output_parts.append("\n---\n")
+
+        if window_count == 0:
+            output_parts.append("*No windows found (or all windows excluded)*")
+        else:
+            output_parts.append(f"\n**Total: {window_count} windows**")
+
+        return '\n'.join(output_parts)
+
     # ==================== DETACH/MOVE ====================
 
     def detach_window(self, window_id: Optional[int] = None, match: Optional[str] = None,
@@ -571,6 +687,9 @@ def main():
 Examples:
   %(prog)s ls                                    # List all windows
   %(prog)s ls -w                                 # Watch mode (continuous)
+  %(prog)s summary                               # Markdown summary of all windows (20 lines each)
+  %(prog)s summary -n 50                         # Summary with 50 lines per window
+  %(prog)s summary -e last_cmd_output            # Summary showing last command output
   %(prog)s get-text --window-id 1                # Get screen content
   %(prog)s get-text --extent last_cmd_output     # Get last command output
   %(prog)s send-text --window-id 1 "echo hi"     # Send text
@@ -724,6 +843,16 @@ Examples:
     detach_parser.add_argument("--tab-id", "-t", type=int, help="Tab ID")
     detach_parser.add_argument("-m", "--match", help="Match pattern")
     detach_parser.add_argument("--target", help="Target tab/OS window")
+
+    # summary command
+    summary_parser = subparsers.add_parser("summary", help="Get markdown summary of all windows with output")
+    summary_parser.add_argument("-n", "--lines", type=int, default=20,
+                               help="Number of lines to show from each window (default: 20)")
+    summary_parser.add_argument("-e", "--extent", default="screen",
+                               choices=["screen", "all", "last_cmd_output", "last_non_empty_output"],
+                               help="What text to get from each window")
+    summary_parser.add_argument("--include-self", action="store_true",
+                               help="Include the window running this command")
 
     args = parser.parse_args()
 
@@ -924,6 +1053,14 @@ Examples:
         else:
             success = controller.detach_window(window_id=args.window_id, match=args.match, target_tab=args.target)
         print("Detached successfully" if success else "Failed to detach")
+
+    elif args.command == "summary":
+        output = controller.summary(
+            lines=args.lines,
+            extent=args.extent,
+            exclude_self=not args.include_self
+        )
+        print(output)
 
 
 if __name__ == "__main__":
