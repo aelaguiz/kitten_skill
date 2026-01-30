@@ -530,6 +530,225 @@ class KittenController:
 
     # ==================== SUMMARY ====================
 
+    def _categorize_process(self, cmdline: List[str]) -> str:
+        """Categorize a process based on its command line."""
+        if not cmdline:
+            return "unknown"
+
+        cmd = cmdline[0].lower()
+        full_cmd = " ".join(cmdline).lower()
+
+        # Extract base command name
+        base = cmd.split("/")[-1]
+
+        # Shells
+        if base in ("zsh", "bash", "sh", "fish", "tcsh", "ksh", "-zsh", "-bash"):
+            return "🐚 shell"
+
+        # Editors
+        if base in ("vim", "nvim", "vi", "nano", "emacs", "code", "subl", "micro", "helix"):
+            return "📝 editor"
+
+        # Build/compile tools
+        if base in ("make", "cmake", "cargo", "go", "gcc", "clang", "rustc", "npm", "yarn", "pnpm", "gradle", "mvn"):
+            return "🔨 build"
+
+        # Test runners
+        if base in ("pytest", "jest", "mocha", "rspec", "go") or "test" in full_cmd:
+            return "🧪 test"
+
+        # Servers/daemons
+        if base in ("node", "python", "ruby", "java", "uvicorn", "gunicorn", "nginx", "postgres", "redis"):
+            if "server" in full_cmd or "serve" in full_cmd or "run" in full_cmd:
+                return "🌐 server"
+
+        # SSH connections
+        if base == "ssh" or "ssh " in full_cmd:
+            return "🔗 ssh"
+
+        # AI agents/assistants
+        if base in ("codex", "claude", "aider", "copilot") or "codex" in full_cmd or "claude" in full_cmd:
+            return "🤖 agent"
+
+        # Git operations
+        if base == "git":
+            return "📦 git"
+
+        # Docker/containers
+        if base in ("docker", "podman", "kubectl", "k9s"):
+            return "🐳 container"
+
+        # File managers/viewers
+        if base in ("less", "more", "cat", "bat", "ranger", "mc", "htop", "top", "btop"):
+            return "👁 viewer"
+
+        # Flutter/mobile
+        if base == "flutter" or "flutter" in full_cmd:
+            return "📱 flutter"
+
+        # Script running
+        if base in ("python", "python3", "node", "ruby", "perl"):
+            return "⚡ script"
+
+        return "💻 process"
+
+    def _extract_ssh_target(self, cmdline: List[str]) -> Optional[str]:
+        """Extract SSH target from command line."""
+        if not cmdline:
+            return None
+
+        full_cmd = " ".join(cmdline)
+
+        # Look for ssh command
+        if "ssh " not in full_cmd.lower() and cmdline[0].split("/")[-1] != "ssh":
+            return None
+
+        # Parse ssh arguments to find target
+        skip_next = False
+        for i, arg in enumerate(cmdline):
+            if skip_next:
+                skip_next = False
+                continue
+
+            # Skip ssh options that take arguments
+            if arg in ("-i", "-p", "-l", "-o", "-F", "-J", "-W", "-L", "-R", "-D"):
+                skip_next = True
+                continue
+
+            # Skip flags
+            if arg.startswith("-"):
+                continue
+
+            # Skip the ssh command itself
+            if arg.split("/")[-1] == "ssh":
+                continue
+
+            # This should be the target
+            return arg
+
+        return None
+
+    def _detect_errors(self, text: str) -> List[str]:
+        """Detect error patterns in terminal output."""
+        if not text:
+            return []
+
+        errors = []
+        lines = text.split('\n')
+
+        # Only check last 30 lines for errors (recent output)
+        recent_lines = lines[-30:]
+
+        # Error patterns - more specific to avoid false positives
+        error_patterns = [
+            (r"^error:", "Error"),
+            (r"^error\[", "Compiler error"),
+            (r"\berror\b.*:", "Error"),
+            (r"\berror \[", "Error"),
+            (r"^\d{2}:\d{2}:\d{2} error", "Error"),  # Log timestamp format
+            (r"^exception:", "Exception"),
+            (r"exception:", "Exception"),
+            (r"^traceback", "Python traceback"),
+            (r"^fatal:", "Fatal error"),
+            (r"^panic:", "Panic/crash"),
+            (r"segmentation fault", "Segmentation fault"),
+            (r"^permission denied", "Permission denied"),
+            (r"command not found", "Command not found"),
+            (r"^syntaxerror:", "Syntax error"),
+            (r"compilation failed", "Compilation failed"),
+            (r"build failed", "Build failed"),
+            (r"tests? failed", "Test failed"),
+            (r"^failed:", "Failed"),
+            (r"npm err!", "NPM error"),
+            (r"unhandled.*exception", "Unhandled exception"),
+            (r"unhandled.*rejection", "Unhandled rejection"),
+            (r"stack trace:", "Stack trace"),
+            (r"^\[error\]", "Error"),
+            (r"error:.*failed", "Error"),
+        ]
+
+        import re
+        seen_patterns = set()
+
+        for line in recent_lines:
+            line_lower = line.lower().strip()
+
+            # Skip empty lines and prompt lines
+            if not line_lower or line_lower.startswith(('❯', '›', '$', '%', '>')):
+                continue
+
+            # Skip lines that are just status/info
+            if line_lower.startswith(('info', 'warn', 'debug', 'notice')):
+                continue
+
+            for pattern, description in error_patterns:
+                if pattern in seen_patterns:
+                    continue
+
+                if re.search(pattern, line_lower):
+                    seen_patterns.add(pattern)
+                    # Clean up the line for display
+                    clean_line = line.strip()
+                    # Remove ANSI codes
+                    clean_line = re.sub(r'\x1b\[[0-9;]*m', '', clean_line)
+                    errors.append(f"{description}: `{truncate(clean_line, 60)}`")
+                    break
+
+            if len(errors) >= 3:
+                break
+
+        return errors
+
+    def _get_git_branch(self, cwd: str) -> Optional[str]:
+        """Get git branch for a directory."""
+        try:
+            result = subprocess.run(
+                ["git", "-C", cwd, "branch", "--show-current"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                branch = result.stdout.strip()
+                return branch if branch else None
+        except:
+            pass
+        return None
+
+    def _get_virtualenv(self, env: Dict[str, str]) -> Optional[str]:
+        """Extract virtualenv info from environment."""
+        venv = env.get("VIRTUAL_ENV", "")
+        if venv:
+            # Get just the venv name
+            return venv.split("/")[-1]
+
+        # Check for conda
+        conda = env.get("CONDA_DEFAULT_ENV", "")
+        if conda and conda != "base":
+            return f"conda:{conda}"
+
+        return None
+
+    def _format_age(self, created_at_ns: int) -> str:
+        """Format creation timestamp as age."""
+        if not created_at_ns:
+            return "unknown"
+
+        try:
+            created = datetime.fromtimestamp(created_at_ns / 1_000_000_000)
+            delta = datetime.now() - created
+
+            if delta.days > 0:
+                return f"{delta.days}d ago"
+            elif delta.seconds >= 3600:
+                return f"{delta.seconds // 3600}h ago"
+            elif delta.seconds >= 60:
+                return f"{delta.seconds // 60}m ago"
+            else:
+                return f"{delta.seconds}s ago"
+        except:
+            return "unknown"
+
     def summary(self, lines: int = 20, extent: str = "screen",
                 exclude_self: bool = True) -> str:
         """Get a markdown-formatted summary of all terminal windows with their recent output.
@@ -553,6 +772,8 @@ class KittenController:
         output_parts.append("---\n")
 
         window_count = 0
+        error_windows = []
+        ready_windows = []
 
         for os_win in data:
             os_id = os_win.get("id", "?")
@@ -579,18 +800,39 @@ class KittenController:
                     pid = win.get("pid", "?")
                     is_focused = win.get("is_focused", False)
                     is_active = win.get("is_active", False)
+                    at_prompt = win.get("at_prompt", False)
+                    columns = win.get("columns", "?")
+                    rows = win.get("lines", "?")
+                    created_at = win.get("created_at", 0)
+                    env = win.get("env", {})
 
                     # Get foreground process info
                     fg_procs = win.get("foreground_processes", [])
-                    fg_cmd = "shell"
+                    fg_cmd = []
                     fg_cwd = cwd
+                    fg_pid = pid
                     if fg_procs:
-                        cmdline = fg_procs[0].get("cmdline", [])
-                        if cmdline:
-                            fg_cmd = " ".join(cmdline)
+                        fg_cmd = fg_procs[0].get("cmdline", [])
                         fg_cwd = fg_procs[0].get("cwd", cwd)
+                        fg_pid = fg_procs[0].get("pid", pid)
 
-                    # Determine status emoji
+                    # Categorize the process
+                    process_type = self._categorize_process(fg_cmd)
+                    fg_cmd_str = " ".join(fg_cmd) if fg_cmd else "shell"
+
+                    # Extract SSH target if applicable
+                    ssh_target = self._extract_ssh_target(fg_cmd)
+
+                    # Get git branch
+                    git_branch = self._get_git_branch(fg_cwd)
+
+                    # Get virtualenv
+                    venv = self._get_virtualenv(env)
+
+                    # Format session age
+                    session_age = self._format_age(created_at)
+
+                    # Determine status emoji and ready state
                     if is_focused:
                         status = "🟢 FOCUSED"
                     elif is_active:
@@ -598,18 +840,48 @@ class KittenController:
                     else:
                         status = "⚪ IDLE"
 
-                    # Build header
-                    output_parts.append(f"## Window {win_id} | {status}\n")
+                    # Track ready windows
+                    if at_prompt:
+                        ready_windows.append(win_id)
+
+                    # Build header with key status indicators
+                    prompt_indicator = "✅ READY" if at_prompt else "⏳ BUSY"
+                    output_parts.append(f"## Window {win_id} | {status} | {prompt_indicator} | {process_type}\n")
+
+                    # Main info table
                     output_parts.append(f"| Property | Value |")
                     output_parts.append(f"|----------|-------|")
                     output_parts.append(f"| **Window ID** | `{win_id}` |")
-                    output_parts.append(f"| **Tab** | {tab_id} ({tab_title}) |")
-                    output_parts.append(f"| **OS Window** | {os_id} |")
-                    output_parts.append(f"| **Title** | {win_title} |")
+                    output_parts.append(f"| **Status** | {prompt_indicator} - {'Can receive commands' if at_prompt else 'Running a process'} |")
+                    output_parts.append(f"| **Process** | {process_type} |")
+                    output_parts.append(f"| **Tab** | {tab_id} ({truncate(tab_title, 30)}) |")
+                    output_parts.append(f"| **Size** | {columns}x{rows} |")
                     output_parts.append(f"| **CWD** | `{fg_cwd}` |")
-                    output_parts.append(f"| **PID** | {pid} |")
-                    output_parts.append(f"| **Command** | `{truncate(fg_cmd, 50)}` |")
+                    output_parts.append(f"| **PID** | {fg_pid} |")
+                    output_parts.append(f"| **Command** | `{truncate(fg_cmd_str, 50)}` |")
+                    output_parts.append(f"| **Session Age** | {session_age} |")
+
+                    # Optional fields
+                    if git_branch:
+                        output_parts.append(f"| **Git Branch** | `{git_branch}` |")
+                    if ssh_target:
+                        output_parts.append(f"| **SSH Target** | `{ssh_target}` |")
+                    if venv:
+                        output_parts.append(f"| **Virtual Env** | `{venv}` |")
+
                     output_parts.append("")
+
+                    # Get terminal content
+                    text = self.get_text(window_id=win_id, extent=extent)
+
+                    # Detect errors
+                    errors = self._detect_errors(text) if text else []
+                    if errors:
+                        error_windows.append(win_id)
+                        output_parts.append("**⚠️ Errors Detected:**")
+                        for err in errors:
+                            output_parts.append(f"- {err}")
+                        output_parts.append("")
 
                     # Quick reference for commands
                     output_parts.append(f"**Quick commands:**")
@@ -618,9 +890,6 @@ class KittenController:
                     output_parts.append(f"- Get more output: `get-text -w {win_id} -e all`")
                     output_parts.append(f"- Focus: `focus -w {win_id}`")
                     output_parts.append("")
-
-                    # Get terminal content
-                    text = self.get_text(window_id=win_id, extent=extent)
 
                     if text and not text.startswith("Error:"):
                         # Get last N lines
@@ -637,10 +906,15 @@ class KittenController:
 
                     output_parts.append("\n---\n")
 
+        # Summary section at the end
         if window_count == 0:
             output_parts.append("*No windows found (or all windows excluded)*")
         else:
-            output_parts.append(f"\n**Total: {window_count} windows**")
+            output_parts.append(f"\n## Summary\n")
+            output_parts.append(f"- **Total windows:** {window_count}")
+            output_parts.append(f"- **Ready for input:** {len(ready_windows)} windows: {', '.join(map(str, ready_windows[:10]))}")
+            if error_windows:
+                output_parts.append(f"- **⚠️ Windows with errors:** {len(error_windows)} windows: {', '.join(map(str, error_windows))}")
 
         return '\n'.join(output_parts)
 
